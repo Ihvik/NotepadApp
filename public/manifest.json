@@ -1,11 +1,11 @@
 {
-  "name": "Спільні Списки",
-  "short_name": "Списки",
-  "description": "Спільні списки покупок та справ",
+  "name": "Яриші",
+  "short_name": "Яриші",
+  "description": "Спільні списки покупок та справ для всієї сімʼї",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a1a",
-  "theme_color": "#6366f1",
+  "theme_color": "#0a0a1a",
   "orientation": "portrait",
   "icons": [
     {
