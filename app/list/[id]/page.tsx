@@ -48,6 +48,8 @@ export default function ListPage() {
     const [sharing, setSharing] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [isSorting, setIsSorting] = useState(false);
+    const [editingItemId, setEditingItemId] = useState<string | null>(null);
+    const [editingItemText, setEditingItemText] = useState('');
 
     const showToast = (message: string, type: 'success' | 'error') => {
         setToast({ message, type });
@@ -225,6 +227,29 @@ export default function ListPage() {
 
         setItems(combined);
         saveNewPositions(itemToMove.checked);
+    };
+
+    const updateItemText = async () => {
+        if (!editingItemId || !editingItemText.trim()) {
+            setEditingItemId(null);
+            return;
+        }
+
+        const item = items.find(i => i.id === editingItemId);
+        if (item?.text === editingItemText.trim()) {
+            setEditingItemId(null);
+            return;
+        }
+
+        const { error } = await supabase
+            .from('items')
+            .update({ text: editingItemText.trim() })
+            .eq('id', editingItemId);
+
+        if (!error) {
+            setItems(prev => prev.map(i => i.id === editingItemId ? { ...i, text: editingItemText.trim() } : i));
+        }
+        setEditingItemId(null);
     };
 
     const deleteItem = async (itemId: string) => {
@@ -566,19 +591,41 @@ export default function ListPage() {
                             <div
                                 className="item-text-container"
                                 style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+                                onClick={(e) => {
+                                    if (isSorting) return;
+                                    e.stopPropagation();
+                                    setEditingItemId(item.id);
+                                    setEditingItemText(item.text);
+                                }}
                             >
-                                <span className="item-text">{item.text}</span>
-                                {item.url && (
-                                    <a
-                                        href={item.url.startsWith('http') ? item.url : `https://${item.url}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="item-link"
-                                        style={{ fontSize: 12, color: 'var(--accent-light)', textDecoration: 'underline', marginTop: 2 }}
+                                {editingItemId === item.id ? (
+                                    <input
+                                        type="text"
+                                        className="share-input"
+                                        style={{ fontSize: 16, padding: '4px 8px', width: '100%' }}
+                                        value={editingItemText}
+                                        onChange={(e) => setEditingItemText(e.target.value)}
+                                        onBlur={updateItemText}
+                                        onKeyDown={(e) => e.key === 'Enter' && updateItemText()}
+                                        autoFocus
                                         onClick={(e) => e.stopPropagation()}
-                                    >
-                                        🔗 Посилання
-                                    </a>
+                                    />
+                                ) : (
+                                    <>
+                                        <span className="item-text">{item.text}</span>
+                                        {item.url && (
+                                            <a
+                                                href={item.url.startsWith('http') ? item.url : `https://${item.url}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="item-link"
+                                                style={{ fontSize: 12, color: 'var(--accent-light)', textDecoration: 'underline', marginTop: 2 }}
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                🔗 Посилання
+                                            </a>
+                                        )}
+                                    </>
                                 )}
                             </div>
 
@@ -643,19 +690,41 @@ export default function ListPage() {
                             <div
                                 className="item-text-container"
                                 style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+                                onClick={(e) => {
+                                    if (isSorting) return;
+                                    e.stopPropagation();
+                                    setEditingItemId(item.id);
+                                    setEditingItemText(item.text);
+                                }}
                             >
-                                <span className="item-text">{item.text}</span>
-                                {item.url && (
-                                    <a
-                                        href={item.url.startsWith('http') ? item.url : `https://${item.url}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="item-link"
-                                        style={{ fontSize: 11, color: 'var(--text-muted)', textDecoration: 'underline', marginTop: 2 }}
+                                {editingItemId === item.id ? (
+                                    <input
+                                        type="text"
+                                        className="share-input"
+                                        style={{ fontSize: 16, padding: '4px 8px', width: '100%', opacity: 0.8 }}
+                                        value={editingItemText}
+                                        onChange={(e) => setEditingItemText(e.target.value)}
+                                        onBlur={updateItemText}
+                                        onKeyDown={(e) => e.key === 'Enter' && updateItemText()}
+                                        autoFocus
                                         onClick={(e) => e.stopPropagation()}
-                                    >
-                                        🔗 Посилання
-                                    </a>
+                                    />
+                                ) : (
+                                    <>
+                                        <span className="item-text">{item.text}</span>
+                                        {item.url && (
+                                            <a
+                                                href={item.url.startsWith('http') ? item.url : `https://${item.url}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="item-link"
+                                                style={{ fontSize: 11, color: 'var(--text-muted)', textDecoration: 'underline', marginTop: 2 }}
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                🔗 Посилання
+                                            </a>
+                                        )}
+                                    </>
                                 )}
                             </div>
 
