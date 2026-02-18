@@ -48,6 +48,7 @@ export default function ListPage() {
     const [sharing, setSharing] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [isSorting, setIsSorting] = useState(false);
+    const [isEditingItems, setIsEditingItems] = useState(false);
     const [editingItemId, setEditingItemId] = useState<string | null>(null);
     const [editingItemText, setEditingItemText] = useState('');
 
@@ -424,8 +425,22 @@ export default function ListPage() {
                 </a>
                 <div className="header-actions">
                     <button
+                        className={`icon-btn ${isEditingItems ? 'accent' : ''}`}
+                        onClick={() => {
+                            setIsEditingItems(!isEditingItems);
+                            setIsSorting(false);
+                        }}
+                        title="Редагувати"
+                        style={{ fontSize: 16 }}
+                    >
+                        ✎
+                    </button>
+                    <button
                         className={`icon-btn ${isSorting ? 'accent' : ''}`}
-                        onClick={() => setIsSorting(!isSorting)}
+                        onClick={() => {
+                            setIsSorting(!isSorting);
+                            setIsEditingItems(false);
+                        }}
                         title="Сортувати"
                         style={{ fontSize: 16 }}
                     >
@@ -582,7 +597,7 @@ export default function ListPage() {
                         <div
                             key={item.id}
                             className="item-row"
-                            onClick={() => !isSorting && toggleItem(item)}
+                            onClick={() => !isSorting && !isEditingItems && toggleItem(item)}
                             style={{ cursor: isSorting ? 'default' : 'pointer' }}
                         >
                             <div
@@ -590,12 +605,15 @@ export default function ListPage() {
                             ></div>
                             <div
                                 className="item-text-container"
-                                style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+                                style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}
                                 onClick={(e) => {
-                                    if (isSorting) return;
                                     e.stopPropagation();
-                                    setEditingItemId(item.id);
-                                    setEditingItemText(item.text);
+                                    if (isEditingItems) {
+                                        setEditingItemId(item.id);
+                                        setEditingItemText(item.text);
+                                    } else if (!isSorting) {
+                                        toggleItem(item);
+                                    }
                                 }}
                             >
                                 {editingItemId === item.id ? (
@@ -613,6 +631,7 @@ export default function ListPage() {
                                 ) : (
                                     <>
                                         <span className="item-text">{item.text}</span>
+                                        {isEditingItems && <span style={{ position: 'absolute', right: 0, top: 0, fontSize: 10, opacity: 0.5 }}>✎</span>}
                                         {item.url && (
                                             <a
                                                 href={item.url.startsWith('http') ? item.url : `https://${item.url}`}
@@ -681,7 +700,7 @@ export default function ListPage() {
                         <div
                             key={item.id}
                             className="item-row checked"
-                            onClick={() => !isSorting && toggleItem(item)}
+                            onClick={() => !isSorting && !isEditingItems && toggleItem(item)}
                             style={{ cursor: isSorting ? 'default' : 'pointer' }}
                         >
                             <div
@@ -689,12 +708,15 @@ export default function ListPage() {
                             >✓</div>
                             <div
                                 className="item-text-container"
-                                style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+                                style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}
                                 onClick={(e) => {
-                                    if (isSorting) return;
                                     e.stopPropagation();
-                                    setEditingItemId(item.id);
-                                    setEditingItemText(item.text);
+                                    if (isEditingItems) {
+                                        setEditingItemId(item.id);
+                                        setEditingItemText(item.text);
+                                    } else if (!isSorting) {
+                                        toggleItem(item);
+                                    }
                                 }}
                             >
                                 {editingItemId === item.id ? (
@@ -712,6 +734,7 @@ export default function ListPage() {
                                 ) : (
                                     <>
                                         <span className="item-text">{item.text}</span>
+                                        {isEditingItems && <span style={{ position: 'absolute', right: 0, top: 0, fontSize: 10, opacity: 0.5 }}>✎</span>}
                                         {item.url && (
                                             <a
                                                 href={item.url.startsWith('http') ? item.url : `https://${item.url}`}
