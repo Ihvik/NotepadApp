@@ -1,10 +1,8 @@
 'use client';
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
-
 interface ListItem {
   id: string;
   name: string;
@@ -15,9 +13,7 @@ interface ListItem {
   item_count?: number;
   unchecked_count?: number;
 }
-
 const ICONS = ['🛒', '✅', '📝', '🏠', '💊', '🎁', '📦', '🍕', '✈️', '💪', '📚', '🎯'];
-
 export default function HomePage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -31,27 +27,22 @@ export default function HomePage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingListId, setEditingListId] = useState<string | null>(null);
   const [editingListName, setEditingListName] = useState('');
-
   const fetchLists = useCallback(async () => {
     const { data: memberData } = await supabase
       .from('list_members')
       .select('list_id');
-
     if (!memberData || memberData.length === 0) {
       setLists([]);
       setLoading(false);
       return;
     }
-
     const listIds = memberData.map((m) => m.list_id);
-
     const { data: listsData } = await supabase
       .from('lists')
       .select('id, name, icon, custom_icon_url, position, created_at')
       .in('id', listIds)
       .order('position', { ascending: true })
       .order('created_at', { ascending: false });
-
     if (listsData) {
       // Get item counts for each list
       const listsWithCounts = await Promise.all(
@@ -60,13 +51,11 @@ export default function HomePage() {
             .from('items')
             .select('*', { count: 'exact', head: true })
             .eq('list_id', list.id);
-
           const { count: uncheckedCount } = await supabase
             .from('items')
             .select('*', { count: 'exact', head: true })
             .eq('list_id', list.id)
             .eq('checked', false);
-
           return {
             ...list,
             item_count: totalCount || 0,
@@ -78,7 +67,6 @@ export default function HomePage() {
     }
     setLoading(false);
   }, []);
-
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
@@ -88,20 +76,16 @@ export default function HomePage() {
       setUser(session.user);
       fetchLists();
     });
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) {
         router.replace('/login');
       }
     });
-
     return () => subscription.unsubscribe();
   }, [router, fetchLists]);
-
   // Realtime subscription for lists
   useEffect(() => {
     if (!user) return;
-
     const channel = supabase
       .channel('lists-changes')
       .on(
@@ -115,12 +99,10 @@ export default function HomePage() {
         () => fetchLists()
       )
       .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
     };
   }, [user, fetchLists]);
-
   const saveNewPositions = async (updatedLists: ListItem[]) => {
     const updates = updatedLists.map((list, index) => ({
       id: list.id,
@@ -128,21 +110,16 @@ export default function HomePage() {
       name: list.name,
       created_by: user?.id
     }));
-
     const { error } = await supabase
       .from('lists')
       .upsert(updates, { onConflict: 'id' });
-
     if (error) fetchLists();
   };
-
   const moveList = (listToMove: ListItem, direction: 'up' | 'down') => {
     const currentIndex = lists.findIndex(list => list.id === listToMove.id);
     if (currentIndex === -1) return;
-
     const newLists = [...lists];
     const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-
     if (newIndex >= 0 && newIndex < newLists.length) {
       const [removed] = newLists.splice(currentIndex, 1);
       newLists.splice(newIndex, 0, removed);
@@ -150,16 +127,13 @@ export default function HomePage() {
       saveNewPositions(newLists);
     }
   };
-
   const createList = async () => {
     if (!newListName.trim()) return;
     setCreating(true);
-
     const { data, error } = await supabase.rpc('create_list_with_member', {
       list_name: newListName.trim(),
       list_icon: newListIcon,
     });
-
     if (!error && data) {
       setShowModal(false);
       setNewListName('');
@@ -168,30 +142,25 @@ export default function HomePage() {
     }
     setCreating(false);
   };
-
   const updateListName = async (listId: string) => {
     if (!editingListName.trim()) {
       setEditingListId(null);
       return;
     }
-
     const { error } = await supabase
       .from('lists')
       .update({ name: editingListName.trim() })
       .eq('id', listId);
-
     if (!error) {
       setLists(prev => prev.map(l => l.id === listId ? { ...l, name: editingListName.trim() } : l));
     }
     setEditingListId(null);
   };
-
   const handleLogout = async () => {
     if (!confirm('Ви дійсно хочете вийти?')) return;
     await supabase.auth.signOut();
     router.replace('/login');
   };
-
   if (loading) {
     return (
       <div className="container">
@@ -203,7 +172,6 @@ export default function HomePage() {
       </div>
     );
   }
-
   return (
     <div className="container">
       <div className="header">
@@ -239,7 +207,6 @@ export default function HomePage() {
           </button>
         </div>
       </div>
-
       {lists.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">📋</div>
@@ -304,7 +271,6 @@ export default function HomePage() {
                     : `${list.unchecked_count} з ${list.item_count} залишилось`}
                 </div>
               </div>
-
               {isSorting ? (
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button
@@ -331,7 +297,6 @@ export default function HomePage() {
           ))}
         </div>
       )}
-
       {/* Create List Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
