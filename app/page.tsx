@@ -27,58 +27,7 @@ export default function HomePage() {
   const [newListName, setNewListName] = useState('');
   const [newListIcon, setNewListIcon] = useState('📝');
   const [creating, setCreating] = useState(false);
-  const [draggedList, setDraggedList] = useState<ListItem | null>(null);
-  const [dragOverList, setDragOverList] = useState<string | null>(null);
-  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
-
-  const handlePointerDown = (list: ListItem) => {
-    longPressTimer.current = setTimeout(() => {
-      setDraggedList(list);
-      if (navigator.vibrate) navigator.vibrate(50);
-    }, 400); // Slightly longer for home page to avoid accidental drags
-  };
-
-  const handlePointerUp = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-    if (draggedList) {
-      saveNewPositions();
-      setDraggedList(null);
-      setDragOverList(null);
-    }
-  };
-
-  const handlePointerMove = (list: ListItem) => {
-    if (!draggedList || draggedList.id === list.id) return;
-
-    const newLists = [...lists];
-    const draggedIdx = newLists.findIndex(i => i.id === draggedList.id);
-    const targetIdx = newLists.findIndex(i => i.id === list.id);
-
-    if (dragOverList !== list.id) {
-      newLists.splice(draggedIdx, 1);
-      newLists.splice(targetIdx, 0, draggedList);
-      setLists(newLists);
-      setDragOverList(list.id);
-    }
-  };
-
-  const saveNewPositions = async () => {
-    const updates = lists.map((list, index) => ({
-      id: list.id,
-      position: index,
-      name: list.name,
-      created_by: user?.id
-    }));
-
-    const { error } = await supabase
-      .from('lists')
-      .upsert(updates, { onConflict: 'id' });
-
-    if (error) fetchLists();
-  };
+  const [isSorting, setIsSorting] = useState(false);
 
   const fetchLists = useCallback(async () => {
     const { data: memberData } = await supabase
@@ -119,7 +68,7 @@ export default function HomePage() {
             ...list,
             item_count: totalCount || 0,
             unchecked_count: uncheckedCount || 0,
-          };
+          } as ListItem;
         })
       );
       setLists(listsWithCounts);
@@ -169,6 +118,36 @@ export default function HomePage() {
     };
   }, [user, fetchLists]);
 
+  const saveNewPositions = async (updatedLists: ListItem[]) => {
+    const updates = updatedLists.map((list, index) => ({
+      id: list.id,
+      position: index,
+      name: list.name,
+      created_by: user?.id
+    }));
+
+    const { error } = await supabase
+      .from('lists')
+      .upsert(updates, { onConflict: 'id' });
+
+    if (error) fetchLists();
+  };
+
+  const moveList = (listToMove: ListItem, direction: 'up' | 'down') => {
+    const currentIndex = lists.findIndex(list => list.id === listToMove.id);
+    if (currentIndex === -1) return;
+
+    const newLists = [...lists];
+    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+
+    if (newIndex >= 0 && newIndex < newLists.length) {
+      const [removed] = newLists.splice(currentIndex, 1);
+      newLists.splice(newIndex, 0, removed);
+      setLists(newLists);
+      saveNewPositions(newLists);
+    }
+  };
+
   const createList = async () => {
     if (!newListName.trim()) return;
     setCreating(true);
@@ -188,6 +167,7 @@ export default function HomePage() {
   };
 
   const handleLogout = async () => {
+    if (!confirm('Ви дійсно хочете вийти?')) return;
     await supabase.auth.signOut();
     router.replace('/login');
   };
@@ -209,6 +189,14 @@ export default function HomePage() {
       <div className="header">
         <h1>Яриші</h1>
         <div className="header-actions">
+          <button
+            className={`icon-btn ${isSorting ? 'accent' : ''}`}
+            onClick={() => setIsSorting(!isSorting)}
+            title="Сортувати"
+            style={{ fontSize: 16 }}
+          >
+            ⇅
+          </button>
           <button className="icon-btn accent" onClick={() => setShowModal(true)} title="Новий список">
             +
           </button>
@@ -231,23 +219,13 @@ export default function HomePage() {
           {lists.map((list) => (
             <div
               key={list.id}
-              className={`card list-card ${draggedList?.id === list.id ? 'dragging' : ''}`}
-              onPointerDown={() => handlePointerDown(list)}
-              onPointerUp={handlePointerUp}
-              onPointerMove={() => handlePointerMove(list)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 16,
-                cursor: 'pointer',
-                touchAction: 'none',
-                userSelect: 'none'
-              }}
+              className="card list-card"
+              onClick={() => !isSorting && router.push(`/list/${list.id}`)}
+              style={{ display: 'flex', alignItems: 'center', gap: 16, cursor: isSorting ? 'default' : 'pointer' }}
             >
               <div
                 className="list-icon"
                 style={{ flexShrink: 0 }}
-                onClick={(e) => { e.stopPropagation(); router.push(`/list/${list.id}`); }}
               >
                 {list.custom_icon_url ? (
                   <img
@@ -259,10 +237,7 @@ export default function HomePage() {
                   list.icon
                 )}
               </div>
-              <div
-                className="list-info"
-                onClick={() => router.push(`/list/${list.id}`)}
-              >
+              <div className="list-info">
                 <div className="list-name">{list.name}</div>
                 <div className="list-meta">
                   {list.item_count === 0
@@ -270,10 +245,29 @@ export default function HomePage() {
                     : `${list.unchecked_count} з ${list.item_count} залишилось`}
                 </div>
               </div>
-              <div
-                className="list-arrow"
-                onClick={() => router.push(`/list/${list.id}`)}
-              >›</div>
+
+              {isSorting ? (
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button
+                    className="item-action-btn"
+                    style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', cursor: 'pointer', width: 44, height: 44, fontSize: 20 }}
+                    onClick={(e) => { e.stopPropagation(); moveList(list, 'up'); }}
+                    disabled={lists.findIndex(l => l.id === list.id) === 0}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    className="item-action-btn"
+                    style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', cursor: 'pointer', width: 44, height: 44, fontSize: 20 }}
+                    onClick={(e) => { e.stopPropagation(); moveList(list, 'down'); }}
+                    disabled={lists.findIndex(l => l.id === list.id) === lists.length - 1}
+                  >
+                    ↓
+                  </button>
+                </div>
+              ) : (
+                <div className="list-arrow">›</div>
+              )}
             </div>
           ))}
         </div>
