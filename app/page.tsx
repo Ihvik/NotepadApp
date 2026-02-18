@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
@@ -28,29 +28,44 @@ export default function HomePage() {
   const [newListIcon, setNewListIcon] = useState('📝');
   const [creating, setCreating] = useState(false);
   const [draggedList, setDraggedList] = useState<ListItem | null>(null);
+  const [dragOverList, setDragOverList] = useState<string | null>(null);
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const onDragStart = (list: ListItem) => {
-    setDraggedList(list);
+  const handlePointerDown = (list: ListItem) => {
+    longPressTimer.current = setTimeout(() => {
+      setDraggedList(list);
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, 400); // Slightly longer for home page to avoid accidental drags
   };
 
-  const onDragOver = (e: React.DragEvent, targetList: ListItem) => {
-    e.preventDefault();
-    if (!draggedList || draggedList.id === targetList.id) return;
+  const handlePointerUp = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    if (draggedList) {
+      saveNewPositions();
+      setDraggedList(null);
+      setDragOverList(null);
+    }
+  };
+
+  const handlePointerMove = (list: ListItem) => {
+    if (!draggedList || draggedList.id === list.id) return;
 
     const newLists = [...lists];
     const draggedIdx = newLists.findIndex(i => i.id === draggedList.id);
-    const targetIdx = newLists.findIndex(i => i.id === targetList.id);
+    const targetIdx = newLists.findIndex(i => i.id === list.id);
 
-    newLists.splice(draggedIdx, 1);
-    newLists.splice(targetIdx, 0, draggedList);
-
-    setLists(newLists);
+    if (dragOverList !== list.id) {
+      newLists.splice(draggedIdx, 1);
+      newLists.splice(targetIdx, 0, draggedList);
+      setLists(newLists);
+      setDragOverList(list.id);
+    }
   };
 
-  const onDragEnd = async () => {
-    if (!draggedList) return;
-    setDraggedList(null);
-
+  const saveNewPositions = async () => {
     const updates = lists.map((list, index) => ({
       id: list.id,
       position: index,
@@ -217,14 +232,23 @@ export default function HomePage() {
             <div
               key={list.id}
               className={`card list-card ${draggedList?.id === list.id ? 'dragging' : ''}`}
-              onClick={() => router.push(`/list/${list.id}`)}
-              draggable
-              onDragStart={() => onDragStart(list)}
-              onDragOver={(e) => onDragOver(e, list)}
-              onDragEnd={onDragEnd}
-              style={{ display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}
+              onPointerDown={() => handlePointerDown(list)}
+              onPointerUp={handlePointerUp}
+              onPointerMove={() => handlePointerMove(list)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+                cursor: 'pointer',
+                touchAction: 'none',
+                userSelect: 'none'
+              }}
             >
-              <div className="list-icon" style={{ flexShrink: 0 }}>
+              <div
+                className="list-icon"
+                style={{ flexShrink: 0 }}
+                onClick={(e) => { e.stopPropagation(); router.push(`/list/${list.id}`); }}
+              >
                 {list.custom_icon_url ? (
                   <img
                     src={list.custom_icon_url}
@@ -235,7 +259,10 @@ export default function HomePage() {
                   list.icon
                 )}
               </div>
-              <div className="list-info">
+              <div
+                className="list-info"
+                onClick={() => router.push(`/list/${list.id}`)}
+              >
                 <div className="list-name">{list.name}</div>
                 <div className="list-meta">
                   {list.item_count === 0
@@ -243,7 +270,10 @@ export default function HomePage() {
                     : `${list.unchecked_count} з ${list.item_count} залишилось`}
                 </div>
               </div>
-              <div className="list-arrow">›</div>
+              <div
+                className="list-arrow"
+                onClick={() => router.push(`/list/${list.id}`)}
+              >›</div>
             </div>
           ))}
         </div>
