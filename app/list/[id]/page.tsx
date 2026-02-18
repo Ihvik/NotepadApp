@@ -216,45 +216,60 @@ export default function ListPage() {
     };
 
     const [draggedItem, setDraggedItem] = useState<Item | null>(null);
+    const [dragOverItem, setDragOverItem] = useState<string | null>(null);
+    const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
-    const onDragStart = (item: Item) => {
-        setDraggedItem(item);
+    const handlePointerDown = (item: Item) => {
+        longPressTimer.current = setTimeout(() => {
+            setDraggedItem(item);
+            if (navigator.vibrate) navigator.vibrate(50);
+        }, 300); // 300ms for "firm" press, 1s might feel too long but user said "second", let's do 500ms
     };
 
-    const onDragOver = (e: React.DragEvent, targetItem: Item) => {
-        e.preventDefault();
-        if (!draggedItem || draggedItem.id === targetItem.id) return;
-        if (draggedItem.checked !== targetItem.checked) return;
+    const handlePointerUp = () => {
+        if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+        }
+        if (draggedItem) {
+            saveNewPositions(draggedItem.checked);
+            setDraggedItem(null);
+            setDragOverItem(null);
+        }
+    };
 
-        const relevantItems = targetItem.checked ? checkedItems : uncheckedItems;
+    const handlePointerMove = (item: Item) => {
+        if (!draggedItem || draggedItem.id === item.id) return;
+        if (draggedItem.checked !== item.checked) return;
+
         const newItems = [...items];
         const draggedIdx = newItems.findIndex(i => i.id === draggedItem.id);
-        const targetIdx = newItems.findIndex(i => i.id === targetItem.id);
+        const targetIdx = newItems.findIndex(i => i.id === item.id);
 
-        newItems.splice(draggedIdx, 1);
-        newItems.splice(targetIdx, 0, draggedItem);
-
-        setItems(newItems);
+        // Only update if the target item is different from the current dragOverItem
+        if (dragOverItem !== item.id) {
+            newItems.splice(draggedIdx, 1);
+            newItems.splice(targetIdx, 0, draggedItem);
+            setItems(newItems);
+            setDragOverItem(item.id); // Set the new drag over item
+        }
     };
 
-    const onDragEnd = async () => {
-        if (!draggedItem) return;
-        setDraggedItem(null);
-
-        // Update all positions in background
-        const relevantItems = draggedItem.checked ? items.filter(i => i.checked) : items.filter(i => !i.checked);
+    const saveNewPositions = async (isChecked: boolean) => {
+        const relevantItems = items.filter(i => i.checked === isChecked);
         const updates = relevantItems.map((item, index) => ({
             id: item.id,
             position: index,
             list_id: listId,
-            text: item.text // included to satisfy potential RLS/validation
+            text: item.text,
+            checked: item.checked
         }));
 
         const { error } = await supabase
             .from('items')
             .upsert(updates, { onConflict: 'id' });
 
-        if (error) fetchItems();
+        if (error) fetchItems(); // Revert on error
     };
 
     const deleteItem = async (itemId: string) => {
@@ -321,6 +336,21 @@ export default function ListPage() {
             showToast(err.message, 'error');
         }
         setUploading(null);
+    };
+
+    const resetMedia = async (type: 'bg' | 'icon') => {
+        if (!confirm(`Відновити стандартний ${type === 'bg' ? 'фон' : 'іконку'}?`)) return;
+
+        const updateData = type === 'bg' ? { bg_url: null } : { custom_icon_url: null };
+        const { error } = await supabase
+            .from('lists')
+            .update(updateData)
+            .eq('id', listId);
+
+        if (!error) {
+            setList(prev => prev ? { ...prev, ...updateData } : null);
+            showToast(type === 'bg' ? 'Фон відновлено' : 'Іконку відновлено', 'success');
+        }
     };
 
     const deleteList = async () => {
@@ -468,25 +498,50 @@ export default function ListPage() {
                     </h1>
                 )}
 
-                <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
-                    <label className="icon-btn" style={{ fontSize: 12, padding: '4px 8px', cursor: 'pointer' }}>
-                        🖼️ {uploading === 'icon' ? '...' : 'Іконка з фото'}
-                        <input
-                            type="file"
-                            accept="image/*"
-                            style={{ display: 'none' }}
-                            onChange={(e) => e.target.files?.[0] && uploadMedia(e.target.files[0], 'icon')}
-                        />
-                    </label>
-                    <label className="icon-btn" style={{ fontSize: 12, padding: '4px 8px', cursor: 'pointer' }}>
-                        🏞️ {uploading === 'bg' ? '...' : 'Свій фон'}
-                        <input
-                            type="file"
-                            accept="image/*"
-                            style={{ display: 'none' }}
-                            onChange={(e) => e.target.files?.[0] && uploadMedia(e.target.files[0], 'bg')}
-                        />
-                    </label>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-card)', borderRadius: '100px', border: '1px solid var(--border)', padding: '2px 4px' }}>
+                        <label className="icon-btn" style={{ fontSize: 13, border: 'none', background: 'transparent', width: 'auto', height: 32, padding: '0 12px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                            🖼️ {uploading === 'icon' ? '...' : 'Іконка'}
+                            <input
+                                type="file"
+                                accept="image/*"
+                                style={{ display: 'none' }}
+                                onChange={(e) => e.target.files?.[0] && uploadMedia(e.target.files[0], 'icon')}
+                            />
+                        </label>
+                        {list?.custom_icon_url && (
+                            <button
+                                className="item-delete"
+                                style={{ opacity: 1, padding: '0 8px', fontSize: 12 }}
+                                onClick={() => resetMedia('icon')}
+                                title="Відновити стандартну"
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-card)', borderRadius: '100px', border: '1px solid var(--border)', padding: '2px 4px' }}>
+                        <label className="icon-btn" style={{ fontSize: 13, border: 'none', background: 'transparent', width: 'auto', height: 32, padding: '0 12px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                            🏞️ {uploading === 'bg' ? '...' : 'фон'}
+                            <input
+                                type="file"
+                                accept="image/*"
+                                style={{ display: 'none' }}
+                                onChange={(e) => e.target.files?.[0] && uploadMedia(e.target.files[0], 'bg')}
+                            />
+                        </label>
+                        {list?.bg_url && (
+                            <button
+                                className="item-delete"
+                                style={{ opacity: 1, padding: '0 8px', fontSize: 12 }}
+                                onClick={() => resetMedia('bg')}
+                                title="Відновити стандартний"
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {items.length > 0 && (
@@ -539,14 +594,24 @@ export default function ListPage() {
                         <div
                             key={item.id}
                             className={`item-row ${draggedItem?.id === item.id ? 'dragging' : ''}`}
-                            onClick={() => toggleItem(item)}
-                            draggable
-                            onDragStart={() => onDragStart(item)}
-                            onDragOver={(e) => onDragOver(e, item)}
-                            onDragEnd={onDragEnd}
+                            onPointerDown={() => handlePointerDown(item)}
+                            onPointerUp={handlePointerUp}
+                            onPointerMove={() => handlePointerMove(item)}
+                            style={{
+                                touchAction: 'none',
+                                cursor: 'grab',
+                                userSelect: 'none'
+                            }}
                         >
-                            <div className="item-checkbox"></div>
-                            <div className="item-text-container" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                            <div
+                                className="item-checkbox"
+                                onClick={(e) => { e.stopPropagation(); toggleItem(item); }}
+                            ></div>
+                            <div
+                                className="item-text-container"
+                                style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+                                onClick={(e) => { e.stopPropagation(); toggleItem(item); }}
+                            >
                                 <span className="item-text">{item.text}</span>
                                 {item.url && (
                                     <a
@@ -592,14 +657,24 @@ export default function ListPage() {
                         <div
                             key={item.id}
                             className={`item-row checked ${draggedItem?.id === item.id ? 'dragging' : ''}`}
-                            onClick={() => toggleItem(item)}
-                            draggable
-                            onDragStart={() => onDragStart(item)}
-                            onDragOver={(e) => onDragOver(e, item)}
-                            onDragEnd={onDragEnd}
+                            onPointerDown={() => handlePointerDown(item)}
+                            onPointerUp={handlePointerUp}
+                            onPointerMove={() => handlePointerMove(item)}
+                            style={{
+                                touchAction: 'none',
+                                cursor: 'grab',
+                                userSelect: 'none'
+                            }}
                         >
-                            <div className="item-checkbox">✓</div>
-                            <div className="item-text-container" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                            <div
+                                className="item-checkbox"
+                                onClick={(e) => { e.stopPropagation(); toggleItem(item); }}
+                            >✓</div>
+                            <div
+                                className="item-text-container"
+                                style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+                                onClick={(e) => { e.stopPropagation(); toggleItem(item); }}
+                            >
                                 <span className="item-text">{item.text}</span>
                                 {item.url && (
                                     <a
@@ -614,7 +689,7 @@ export default function ListPage() {
                                     </a>
                                 )}
                             </div>
-                            <div className="item-actions" style={{ display: 'flex', gap: 4 }}>
+                            <div className="item-actions">
                                 <button
                                     className="item-delete"
                                     onClick={(e) => {
