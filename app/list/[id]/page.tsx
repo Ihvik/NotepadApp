@@ -1,10 +1,8 @@
 'use client';
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter, useParams } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
-
 interface Item {
     id: string;
     text: string;
@@ -14,7 +12,6 @@ interface Item {
     created_at: string;
     position: number;
 }
-
 interface ListData {
     id: string;
     name: string;
@@ -23,18 +20,15 @@ interface ListData {
     custom_icon_url?: string | null;
     created_by: string;
 }
-
 interface Member {
     user_id: string;
     email: string;
 }
-
 export default function ListPage() {
     const router = useRouter();
     const params = useParams();
     const listId = params.id as string;
     const inputRef = useRef<HTMLInputElement>(null);
-
     const [user, setUser] = useState<User | null>(null);
     const [list, setList] = useState<ListData | null>(null);
     const [items, setItems] = useState<Item[]>([]);
@@ -51,26 +45,22 @@ export default function ListPage() {
     const [isEditingItems, setIsEditingItems] = useState(false);
     const [editingItemId, setEditingItemId] = useState<string | null>(null);
     const [editingItemText, setEditingItemText] = useState('');
-
     const showToast = (message: string, type: 'success' | 'error') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 3000);
     };
-
     const fetchList = useCallback(async () => {
         const { data } = await supabase
             .from('lists')
             .select('*')
             .eq('id', listId)
             .single();
-
         if (data) {
             setList(data);
         } else {
             router.replace('/');
         }
     }, [listId, router]);
-
     const fetchItems = useCallback(async () => {
         const { data } = await supabase
             .from('items')
@@ -79,31 +69,26 @@ export default function ListPage() {
             .order('checked', { ascending: true })
             .order('position', { ascending: true })
             .order('created_at', { ascending: false });
-
         if (data) {
             setItems(data);
         }
     }, [listId]);
-
     const fetchMembers = useCallback(async () => {
         const { data } = await supabase
             .from('list_members')
             .select('user_id')
             .eq('list_id', listId);
-
         if (data) {
             const userIds = data.map((m) => m.user_id);
             const { data: profiles } = await supabase
                 .from('profiles')
                 .select('id, email')
                 .in('id', userIds);
-
             if (profiles) {
                 setMembers(profiles.map((p) => ({ user_id: p.id, email: p.email })));
             }
         }
     }, [listId]);
-
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
             if (!session) {
@@ -116,11 +101,9 @@ export default function ListPage() {
             });
         });
     }, [router, fetchList, fetchItems, fetchMembers]);
-
     // Realtime subscription for items
     useEffect(() => {
         if (!user) return;
-
         const channel = supabase
             .channel(`list-${listId}`)
             .on(
@@ -144,18 +127,14 @@ export default function ListPage() {
                 () => fetchMembers()
             )
             .subscribe();
-
         return () => {
             supabase.removeChannel(channel);
         };
     }, [user, listId, fetchItems, fetchMembers]);
-
     const addItem = async () => {
         if (!newItemText.trim() || !user) return;
         setAdding(true);
-
         const maxPos = items.length > 0 ? Math.max(...items.map(i => i.position || 0)) : 0;
-
         const { error } = await supabase.from('items').insert({
             list_id: listId,
             text: newItemText.trim(),
@@ -163,7 +142,6 @@ export default function ListPage() {
             created_by: user.id,
             position: maxPos + 1
         });
-
         if (!error) {
             setNewItemText('');
             setNewItemUrl('');
@@ -172,19 +150,15 @@ export default function ListPage() {
         }
         setAdding(false);
     };
-
-
     const toggleItem = async (item: Item) => {
         // Optimistic update
         setItems((prev) =>
             prev.map((i) => (i.id === item.id ? { ...i, checked: !i.checked } : i))
         );
-
         const { error } = await supabase
             .from('items')
             .update({ checked: !item.checked })
             .eq('id', item.id);
-
         if (error) {
             // Revert on error
             setItems((prev) =>
@@ -192,7 +166,6 @@ export default function ListPage() {
             );
         }
     };
-
     const saveNewPositions = async (isChecked: boolean) => {
         const relevantItems = items.filter(i => i.checked === isChecked);
         const updates = relevantItems.map((item, index) => ({
@@ -202,115 +175,91 @@ export default function ListPage() {
             text: item.text,
             checked: item.checked
         }));
-
         await supabase
             .from('items')
             .upsert(updates, { onConflict: 'id' });
     };
-
     const moveItem = (itemToMove: Item, direction: 'up' | 'down') => {
         const relevantItems = itemToMove.checked ? items.filter(i => i.checked) : items.filter(i => !i.checked);
         const currentIndex = relevantItems.findIndex(i => i.id === itemToMove.id);
         if (currentIndex === -1) return;
-
         const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
         if (newIndex < 0 || newIndex >= relevantItems.length) return;
-
         const newRelevantItems = [...relevantItems];
         const [removed] = newRelevantItems.splice(currentIndex, 1);
         newRelevantItems.splice(newIndex, 0, removed);
-
         // Merge back into main items list
         const otherItems = items.filter(i => i.checked !== itemToMove.checked);
         const combined = itemToMove.checked
             ? [...otherItems, ...newRelevantItems]
             : [...newRelevantItems, ...otherItems];
-
         setItems(combined);
         saveNewPositions(itemToMove.checked);
     };
-
     const updateItemText = async () => {
         if (!editingItemId || !editingItemText.trim()) {
             setEditingItemId(null);
             return;
         }
-
         const item = items.find(i => i.id === editingItemId);
         if (item?.text === editingItemText.trim()) {
             setEditingItemId(null);
             return;
         }
-
         const { error } = await supabase
             .from('items')
             .update({ text: editingItemText.trim() })
             .eq('id', editingItemId);
-
         if (!error) {
             setItems(prev => prev.map(i => i.id === editingItemId ? { ...i, text: editingItemText.trim() } : i));
         }
         setEditingItemId(null);
     };
-
     const deleteItem = async (itemId: string) => {
         // Optimistic update
         setItems((prev) => prev.filter((i) => i.id !== itemId));
-
         const { error } = await supabase.from('items').delete().eq('id', itemId);
-
         if (error) {
             fetchItems(); // Revert on error
         }
     };
-
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [editedName, setEditedName] = useState('');
     const [uploading, setUploading] = useState<'bg' | 'icon' | null>(null);
-
     const updateListName = async () => {
         if (!editedName.trim() || editedName === list?.name) {
             setIsEditingTitle(false);
             return;
         }
-
         const { error } = await supabase
             .from('lists')
             .update({ name: editedName.trim() })
             .eq('id', listId);
-
         if (!error) {
             setList(prev => prev ? { ...prev, name: editedName.trim() } : null);
             setIsEditingTitle(false);
             showToast('Назву оновлено! ✨', 'success');
         }
     };
-
     const uploadMedia = async (file: File, type: 'bg' | 'icon') => {
         setUploading(type);
         const fileExt = file.name.split('.').pop();
         const fileName = `${listId}-${type}-${Math.random()}.${fileExt}`;
         const filePath = `list-media/${fileName}`;
-
         try {
             const { error: uploadError } = await supabase.storage
                 .from('list-media')
                 .upload(fileName, file);
-
             if (uploadError) throw uploadError;
-
             const { data: { publicUrl } } = supabase.storage
                 .from('list-media')
                 .getPublicUrl(fileName);
-
             const updateData = type === 'bg' ? { bg_url: publicUrl } : { custom_icon_url: publicUrl };
             const { error: dbError } = await supabase
                 .from('lists')
                 .update(updateData)
                 .eq('id', listId);
-
             if (dbError) throw dbError;
-
             setList(prev => prev ? { ...prev, ...updateData } : null);
             showToast(type === 'bg' ? 'Фон оновлено! 🏞️' : 'Іконку оновлено! 🖼️', 'success');
         } catch (err: any) {
@@ -318,41 +267,32 @@ export default function ListPage() {
         }
         setUploading(null);
     };
-
     const resetMedia = async (type: 'bg' | 'icon') => {
         if (!confirm(`Відновити стандартний ${type === 'bg' ? 'фон' : 'іконку'}?`)) return;
-
         const updateData = type === 'bg' ? { bg_url: null } : { custom_icon_url: null };
         const { error } = await supabase
             .from('lists')
             .update(updateData)
             .eq('id', listId);
-
         if (!error) {
             setList(prev => prev ? { ...prev, ...updateData } : null);
             showToast(type === 'bg' ? 'Фон відновлено' : 'Іконку відновлено', 'success');
         }
     };
-
     const deleteList = async () => {
         if (!confirm('Видалити цей список?')) return;
-
         await supabase.from('lists').delete().eq('id', listId);
         router.replace('/');
     };
-
     const shareList = async () => {
         if (!shareEmail.trim()) return;
         setSharing(true);
-
         try {
             const { error } = await supabase.rpc('share_list_by_email', {
                 target_list_id: listId,
                 target_email: shareEmail.trim().toLowerCase(),
             });
-
             if (error) throw error;
-
             showToast('Список поділено! ✨', 'success');
             setShareEmail('');
             fetchMembers();
@@ -366,19 +306,14 @@ export default function ListPage() {
         }
         setSharing(false);
     };
-
     const clearChecked = async () => {
         const checkedIds = items.filter((i) => i.checked).map((i) => i.id);
         if (checkedIds.length === 0) return;
-
         if (!confirm(`Видалити ${checkedIds.length} виконаних?`)) return;
-
         setItems((prev) => prev.filter((i) => !i.checked));
-
         await supabase.from('items').delete().in('id', checkedIds);
         fetchItems();
     };
-
     if (loading) {
         return (
             <div className="container">
@@ -390,10 +325,8 @@ export default function ListPage() {
             </div>
         );
     }
-
     const uncheckedItems = items.filter((i) => !i.checked);
     const checkedItems = items.filter((i) => i.checked);
-
     return (
         <div
             className="container"
@@ -412,12 +345,10 @@ export default function ListPage() {
                 backdropFilter: 'blur(12px)',
                 zIndex: -1
             }}></div>}
-
             {/* Toast */}
             {toast && (
                 <div className={`toast ${toast.type}`}>{toast.message}</div>
             )}
-
             {/* Header */}
             <div className="header">
                 <a className="back-btn" onClick={() => router.push('/')}>
@@ -463,7 +394,6 @@ export default function ListPage() {
                     </button>
                 </div>
             </div>
-
             {/* List Title */}
             <div style={{ marginBottom: 20 }}>
                 {isEditingTitle ? (
@@ -500,7 +430,6 @@ export default function ListPage() {
                         <span style={{ fontSize: 14, opacity: 0.5 }}>✎</span>
                     </h1>
                 )}
-
                 <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-card)', borderRadius: '100px', border: '1px solid var(--border)', padding: '2px 4px' }}>
                         <label className="icon-btn" style={{ fontSize: 13, border: 'none', background: 'transparent', width: 'auto', height: 32, padding: '0 12px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
@@ -523,7 +452,6 @@ export default function ListPage() {
                             </button>
                         )}
                     </div>
-
                     <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-card)', borderRadius: '100px', border: '1px solid var(--border)', padding: '2px 4px' }}>
                         <label className="icon-btn" style={{ fontSize: 13, border: 'none', background: 'transparent', width: 'auto', height: 32, padding: '0 12px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                             🏞️ {uploading === 'bg' ? '...' : 'фон'}
@@ -546,14 +474,12 @@ export default function ListPage() {
                         )}
                     </div>
                 </div>
-
                 {items.length > 0 && (
                     <div style={{ marginTop: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
                         {uncheckedItems.length} з {items.length} залишилось
                     </div>
                 )}
             </div>
-
             {/* Share Section */}
             {showShare && (
                 <div className="card animate-slide-up" style={{ marginBottom: 16 }}>
@@ -583,7 +509,6 @@ export default function ListPage() {
                     )}
                 </div>
             )}
-
             {/* Items */}
             {items.length === 0 ? (
                 <div className="empty-state">
@@ -647,7 +572,6 @@ export default function ListPage() {
                                     </>
                                 )}
                             </div>
-
                             {isSorting ? (
                                 <div style={{ display: 'flex', gap: 6 }}>
                                     <button
@@ -682,7 +606,6 @@ export default function ListPage() {
                             )}
                         </div>
                     ))}
-
                     {checkedItems.length > 0 && uncheckedItems.length > 0 && (
                         <div style={{
                             fontSize: 12,
@@ -695,7 +618,6 @@ export default function ListPage() {
                             Виконані ({checkedItems.length})
                         </div>
                     )}
-
                     {checkedItems.map((item) => (
                         <div
                             key={item.id}
@@ -750,7 +672,6 @@ export default function ListPage() {
                                     </>
                                 )}
                             </div>
-
                             {isSorting ? (
                                 <div style={{ display: 'flex', gap: 6 }}>
                                     <button
@@ -787,7 +708,6 @@ export default function ListPage() {
                     ))}
                 </div>
             )}
-
             {/* Add Item Bar */}
             <div className="input-bar">
                 <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
