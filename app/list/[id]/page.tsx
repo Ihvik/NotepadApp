@@ -8,6 +8,7 @@ import type { User } from '@supabase/supabase-js';
 interface Item {
     id: string;
     text: string;
+    url: string | null;
     checked: boolean;
     created_by: string | null;
     created_at: string;
@@ -18,6 +19,8 @@ interface ListData {
     id: string;
     name: string;
     icon: string;
+    bg_url?: string | null;
+    custom_icon_url?: string | null;
     created_by: string;
 }
 
@@ -38,6 +41,7 @@ export default function ListPage() {
     const [members, setMembers] = useState<Member[]>([]);
     const [loading, setLoading] = useState(true);
     const [newItemText, setNewItemText] = useState('');
+    const [newItemUrl, setNewItemUrl] = useState('');
     const [adding, setAdding] = useState(false);
     const [showShare, setShowShare] = useState(false);
     const [shareEmail, setShareEmail] = useState('');
@@ -69,6 +73,7 @@ export default function ListPage() {
             .select('*')
             .eq('list_id', listId)
             .order('checked', { ascending: true })
+            .order('position', { ascending: true })
             .order('created_at', { ascending: false });
 
         if (data) {
@@ -145,18 +150,50 @@ export default function ListPage() {
         if (!newItemText.trim() || !user) return;
         setAdding(true);
 
+        const maxPos = items.length > 0 ? Math.max(...items.map(i => i.position || 0)) : 0;
+
         const { error } = await supabase.from('items').insert({
             list_id: listId,
             text: newItemText.trim(),
+            url: newItemUrl.trim() || null,
             created_by: user.id,
+            position: maxPos + 1
         });
 
         if (!error) {
             setNewItemText('');
+            setNewItemUrl('');
             fetchItems();
             inputRef.current?.focus();
         }
         setAdding(false);
+    };
+
+    const moveItem = async (item: Item, direction: 'up' | 'down') => {
+        const relevantItems = item.checked ? items.filter(i => i.checked) : items.filter(i => !i.checked);
+        const index = relevantItems.indexOf(item);
+
+        if (direction === 'up' && index === 0) return;
+        if (direction === 'down' && index === relevantItems.length - 1) return;
+
+        const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        const targetItem = relevantItems[targetIndex];
+
+        // Swap positions
+        const tempPos = item.position;
+        const { error: err1 } = await supabase
+            .from('items')
+            .update({ position: targetItem.position })
+            .eq('id', item.id);
+
+        const { error: err2 } = await supabase
+            .from('items')
+            .update({ position: tempPos })
+            .eq('id', targetItem.id);
+
+        if (!err1 && !err2) {
+            fetchItems();
+        }
     };
 
     const toggleItem = async (item: Item) => {
@@ -187,6 +224,61 @@ export default function ListPage() {
         if (error) {
             fetchItems(); // Revert on error
         }
+    };
+
+    const [isEditingTitle, setIsEditingTitle] = useState(false);
+    const [editedName, setEditedName] = useState('');
+    const [uploading, setUploading] = useState<'bg' | 'icon' | null>(null);
+
+    const updateListName = async () => {
+        if (!editedName.trim() || editedName === list?.name) {
+            setIsEditingTitle(false);
+            return;
+        }
+
+        const { error } = await supabase
+            .from('lists')
+            .update({ name: editedName.trim() })
+            .eq('id', listId);
+
+        if (!error) {
+            setList(prev => prev ? { ...prev, name: editedName.trim() } : null);
+            setIsEditingTitle(false);
+            showToast('Назву оновлено! ✨', 'success');
+        }
+    };
+
+    const uploadMedia = async (file: File, type: 'bg' | 'icon') => {
+        setUploading(type);
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${listId}-${type}-${Math.random()}.${fileExt}`;
+        const filePath = `list-media/${fileName}`;
+
+        try {
+            const { error: uploadError } = await supabase.storage
+                .from('list-media')
+                .upload(fileName, file);
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('list-media')
+                .getPublicUrl(fileName);
+
+            const updateData = type === 'bg' ? { bg_url: publicUrl } : { custom_icon_url: publicUrl };
+            const { error: dbError } = await supabase
+                .from('lists')
+                .update(updateData)
+                .eq('id', listId);
+
+            if (dbError) throw dbError;
+
+            setList(prev => prev ? { ...prev, ...updateData } : null);
+            showToast(type === 'bg' ? 'Фон оновлено! 🏞️' : 'Іконку оновлено! 🖼️', 'success');
+        } catch (err: any) {
+            showToast(err.message, 'error');
+        }
+        setUploading(null);
     };
 
     const deleteList = async () => {
@@ -250,7 +342,24 @@ export default function ListPage() {
     const checkedItems = items.filter((i) => i.checked);
 
     return (
-        <div className="container">
+        <div
+            className="container"
+            style={list?.bg_url ? {
+                backgroundImage: `url(${list.bg_url})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundAttachment: 'fixed'
+            } : {}}
+        >
+            {/* Background Overlay if image exists */}
+            {list?.bg_url && <div style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(10px)',
+                zIndex: -1
+            }}></div>}
+
             {/* Toast */}
             {toast && (
                 <div className={`toast ${toast.type}`}>{toast.message}</div>
@@ -282,10 +391,62 @@ export default function ListPage() {
 
             {/* List Title */}
             <div style={{ marginBottom: 20 }}>
-                <h1 style={{ fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 32 }}>{list?.icon}</span>
-                    {list?.name}
-                </h1>
+                {isEditingTitle ? (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input
+                            type="text"
+                            className="share-input"
+                            style={{ fontSize: 24, fontWeight: 700, padding: '8px 12px' }}
+                            value={editedName}
+                            onChange={(e) => setEditedName(e.target.value)}
+                            onBlur={updateListName}
+                            onKeyDown={(e) => e.key === 'Enter' && updateListName()}
+                            autoFocus
+                        />
+                    </div>
+                ) : (
+                    <h1
+                        style={{ fontSize: 24, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+                        onClick={() => {
+                            setEditedName(list?.name || '');
+                            setIsEditingTitle(true);
+                        }}
+                    >
+                        {list?.custom_icon_url ? (
+                            <img
+                                src={list.custom_icon_url}
+                                alt=""
+                                style={{ width: 40, height: 40, borderRadius: '25%', objectFit: 'cover' }}
+                            />
+                        ) : (
+                            <span style={{ fontSize: 32 }}>{list?.icon}</span>
+                        )}
+                        {list?.name}
+                        <span style={{ fontSize: 14, opacity: 0.5 }}>✎</span>
+                    </h1>
+                )}
+
+                <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
+                    <label className="icon-btn" style={{ fontSize: 12, padding: '4px 8px', cursor: 'pointer' }}>
+                        🖼️ {uploading === 'icon' ? '...' : 'Іконка з фото'}
+                        <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            onChange={(e) => e.target.files?.[0] && uploadMedia(e.target.files[0], 'icon')}
+                        />
+                    </label>
+                    <label className="icon-btn" style={{ fontSize: 12, padding: '4px 8px', cursor: 'pointer' }}>
+                        🏞️ {uploading === 'bg' ? '...' : 'Свій фон'}
+                        <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            onChange={(e) => e.target.files?.[0] && uploadMedia(e.target.files[0], 'bg')}
+                        />
+                    </label>
+                </div>
+
                 {items.length > 0 && (
                     <div style={{ marginTop: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
                         {uncheckedItems.length} з {items.length} залишилось
@@ -332,23 +493,57 @@ export default function ListPage() {
                 </div>
             ) : (
                 <div className="items-list">
-                    {uncheckedItems.map((item) => (
+                    {uncheckedItems.map((item, idx) => (
                         <div
                             key={item.id}
                             className="item-row"
                             onClick={() => toggleItem(item)}
                         >
                             <div className="item-checkbox"></div>
-                            <span className="item-text">{item.text}</span>
-                            <button
-                                className="item-delete"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteItem(item.id);
-                                }}
-                            >
-                                ✕
-                            </button>
+                            <div className="item-text-container" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                <span className="item-text">{item.text}</span>
+                                {item.url && (
+                                    <a
+                                        href={item.url.startsWith('http') ? item.url : `https://${item.url}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="item-link"
+                                        style={{ fontSize: 12, color: 'var(--accent-light)', textDecoration: 'underline', marginTop: 2 }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        🔗 Посилання
+                                    </a>
+                                )}
+                            </div>
+                            <div className="item-actions" style={{ display: 'flex', gap: 4 }}>
+                                <button
+                                    className="item-action-btn"
+                                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+                                    onClick={(e) => { e.stopPropagation(); moveItem(item, 'up'); }}
+                                    disabled={idx === 0}
+                                    title="Вгору"
+                                >
+                                    ↑
+                                </button>
+                                <button
+                                    className="item-action-btn"
+                                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+                                    onClick={(e) => { e.stopPropagation(); moveItem(item, 'down'); }}
+                                    disabled={idx === uncheckedItems.length - 1}
+                                    title="Вниз"
+                                >
+                                    ↓
+                                </button>
+                                <button
+                                    className="item-delete"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteItem(item.id);
+                                    }}
+                                >
+                                    ✕
+                                </button>
+                            </div>
                         </div>
                     ))}
 
@@ -365,23 +560,39 @@ export default function ListPage() {
                         </div>
                     )}
 
-                    {checkedItems.map((item) => (
+                    {checkedItems.map((item, idx) => (
                         <div
                             key={item.id}
                             className="item-row checked"
                             onClick={() => toggleItem(item)}
                         >
                             <div className="item-checkbox">✓</div>
-                            <span className="item-text">{item.text}</span>
-                            <button
-                                className="item-delete"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteItem(item.id);
-                                }}
-                            >
-                                ✕
-                            </button>
+                            <div className="item-text-container" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                <span className="item-text">{item.text}</span>
+                                {item.url && (
+                                    <a
+                                        href={item.url.startsWith('http') ? item.url : `https://${item.url}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="item-link"
+                                        style={{ fontSize: 11, color: 'var(--text-muted)', textDecoration: 'underline', marginTop: 2 }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        🔗 Посилання
+                                    </a>
+                                )}
+                            </div>
+                            <div className="item-actions" style={{ display: 'flex', gap: 4 }}>
+                                <button
+                                    className="item-delete"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteItem(item.id);
+                                    }}
+                                >
+                                    ✕
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -389,18 +600,33 @@ export default function ListPage() {
 
             {/* Add Item Bar */}
             <div className="input-bar">
-                <div className="input-bar-inner">
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        placeholder="Додати елемент..."
-                        value={newItemText}
-                        onChange={(e) => setNewItemText(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && addItem()}
-                    />
-                    <button onClick={addItem} disabled={!newItemText.trim() || adding}>
-                        +
-                    </button>
+                <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div className="input-bar-inner">
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            placeholder="Додати елемент..."
+                            value={newItemText}
+                            onChange={(e) => setNewItemText(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && addItem()}
+                        />
+                        <button onClick={addItem} disabled={!newItemText.trim() || adding}>
+                            +
+                        </button>
+                    </div>
+                    {newItemText.trim() && (
+                        <div className="animate-slide-up" style={{ display: 'flex', gap: 8 }}>
+                            <input
+                                type="text"
+                                className="share-input"
+                                style={{ flex: 1, borderRadius: 12, padding: '8px 14px', fontSize: 13 }}
+                                placeholder="Додати посилання (не обов'язково)..."
+                                value={newItemUrl}
+                                onChange={(e) => setNewItemUrl(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && addItem()}
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
