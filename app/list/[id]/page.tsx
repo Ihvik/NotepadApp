@@ -47,6 +47,7 @@ export default function ListPage() {
     const [shareEmail, setShareEmail] = useState('');
     const [sharing, setSharing] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+    const [isSorting, setIsSorting] = useState(false);
 
     const showToast = (message: string, type: 'success' | 'error') => {
         setToast({ message, type });
@@ -169,32 +170,6 @@ export default function ListPage() {
         setAdding(false);
     };
 
-    const moveItem = async (item: Item, direction: 'up' | 'down') => {
-        const relevantItems = item.checked ? items.filter(i => i.checked) : items.filter(i => !i.checked);
-        const index = relevantItems.indexOf(item);
-
-        if (direction === 'up' && index === 0) return;
-        if (direction === 'down' && index === relevantItems.length - 1) return;
-
-        const targetIndex = direction === 'up' ? index - 1 : index + 1;
-        const targetItem = relevantItems[targetIndex];
-
-        // Swap positions
-        const tempPos = item.position;
-        const { error: err1 } = await supabase
-            .from('items')
-            .update({ position: targetItem.position })
-            .eq('id', item.id);
-
-        const { error: err2 } = await supabase
-            .from('items')
-            .update({ position: tempPos })
-            .eq('id', targetItem.id);
-
-        if (!err1 && !err2) {
-            fetchItems();
-        }
-    };
 
     const toggleItem = async (item: Item) => {
         // Optimistic update
@@ -215,46 +190,6 @@ export default function ListPage() {
         }
     };
 
-    const [draggedItem, setDraggedItem] = useState<Item | null>(null);
-    const [dragOverItem, setDragOverItem] = useState<string | null>(null);
-    const longPressTimer = useRef<NodeJS.Timeout | null>(null);
-
-    const handlePointerDown = (item: Item) => {
-        longPressTimer.current = setTimeout(() => {
-            setDraggedItem(item);
-            if (navigator.vibrate) navigator.vibrate(50);
-        }, 300); // 300ms for "firm" press, 1s might feel too long but user said "second", let's do 500ms
-    };
-
-    const handlePointerUp = () => {
-        if (longPressTimer.current) {
-            clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
-        }
-        if (draggedItem) {
-            saveNewPositions(draggedItem.checked);
-            setDraggedItem(null);
-            setDragOverItem(null);
-        }
-    };
-
-    const handlePointerMove = (item: Item) => {
-        if (!draggedItem || draggedItem.id === item.id) return;
-        if (draggedItem.checked !== item.checked) return;
-
-        const newItems = [...items];
-        const draggedIdx = newItems.findIndex(i => i.id === draggedItem.id);
-        const targetIdx = newItems.findIndex(i => i.id === item.id);
-
-        // Only update if the target item is different from the current dragOverItem
-        if (dragOverItem !== item.id) {
-            newItems.splice(draggedIdx, 1);
-            newItems.splice(targetIdx, 0, draggedItem);
-            setItems(newItems);
-            setDragOverItem(item.id); // Set the new drag over item
-        }
-    };
-
     const saveNewPositions = async (isChecked: boolean) => {
         const relevantItems = items.filter(i => i.checked === isChecked);
         const updates = relevantItems.map((item, index) => ({
@@ -265,11 +200,31 @@ export default function ListPage() {
             checked: item.checked
         }));
 
-        const { error } = await supabase
+        await supabase
             .from('items')
             .upsert(updates, { onConflict: 'id' });
+    };
 
-        if (error) fetchItems(); // Revert on error
+    const moveItem = (itemToMove: Item, direction: 'up' | 'down') => {
+        const relevantItems = itemToMove.checked ? items.filter(i => i.checked) : items.filter(i => !i.checked);
+        const currentIndex = relevantItems.findIndex(i => i.id === itemToMove.id);
+        if (currentIndex === -1) return;
+
+        const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+        if (newIndex < 0 || newIndex >= relevantItems.length) return;
+
+        const newRelevantItems = [...relevantItems];
+        const [removed] = newRelevantItems.splice(currentIndex, 1);
+        newRelevantItems.splice(newIndex, 0, removed);
+
+        // Merge back into main items list
+        const otherItems = items.filter(i => i.checked !== itemToMove.checked);
+        const combined = itemToMove.checked
+            ? [...otherItems, ...newRelevantItems]
+            : [...newRelevantItems, ...otherItems];
+
+        setItems(combined);
+        saveNewPositions(itemToMove.checked);
     };
 
     const deleteItem = async (itemId: string) => {
@@ -427,8 +382,8 @@ export default function ListPage() {
             {list?.bg_url && <div style={{
                 position: 'fixed',
                 inset: 0,
-                background: 'rgba(0,0,0,0.5)',
-                backdropFilter: 'blur(10px)',
+                background: 'rgba(0,0,0,0.65)',
+                backdropFilter: 'blur(12px)',
                 zIndex: -1
             }}></div>}
 
@@ -443,6 +398,14 @@ export default function ListPage() {
                     ← Назад
                 </a>
                 <div className="header-actions">
+                    <button
+                        className={`icon-btn ${isSorting ? 'accent' : ''}`}
+                        onClick={() => setIsSorting(!isSorting)}
+                        title="Сортувати"
+                        style={{ fontSize: 16 }}
+                    >
+                        ⇅
+                    </button>
                     <button
                         className="icon-btn"
                         onClick={() => setShowShare(!showShare)}
@@ -593,24 +556,16 @@ export default function ListPage() {
                     {uncheckedItems.map((item) => (
                         <div
                             key={item.id}
-                            className={`item-row ${draggedItem?.id === item.id ? 'dragging' : ''}`}
-                            onPointerDown={() => handlePointerDown(item)}
-                            onPointerUp={handlePointerUp}
-                            onPointerMove={() => handlePointerMove(item)}
-                            style={{
-                                touchAction: 'none',
-                                cursor: 'grab',
-                                userSelect: 'none'
-                            }}
+                            className="item-row"
+                            onClick={() => !isSorting && toggleItem(item)}
+                            style={{ cursor: isSorting ? 'default' : 'pointer' }}
                         >
                             <div
                                 className="item-checkbox"
-                                onClick={(e) => { e.stopPropagation(); toggleItem(item); }}
                             ></div>
                             <div
                                 className="item-text-container"
                                 style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-                                onClick={(e) => { e.stopPropagation(); toggleItem(item); }}
                             >
                                 <span className="item-text">{item.text}</span>
                                 {item.url && (
@@ -626,17 +581,39 @@ export default function ListPage() {
                                     </a>
                                 )}
                             </div>
-                            <div className="item-actions">
-                                <button
-                                    className="item-delete"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        deleteItem(item.id);
-                                    }}
-                                >
-                                    ✕
-                                </button>
-                            </div>
+
+                            {isSorting ? (
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <button
+                                        className="item-action-btn"
+                                        style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', cursor: 'pointer', width: 44, height: 44, fontSize: 18 }}
+                                        onClick={(e) => { e.stopPropagation(); moveItem(item, 'up'); }}
+                                        disabled={uncheckedItems.indexOf(item) === 0}
+                                    >
+                                        ↑
+                                    </button>
+                                    <button
+                                        className="item-action-btn"
+                                        style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', cursor: 'pointer', width: 44, height: 44, fontSize: 18 }}
+                                        onClick={(e) => { e.stopPropagation(); moveItem(item, 'down'); }}
+                                        disabled={uncheckedItems.indexOf(item) === uncheckedItems.length - 1}
+                                    >
+                                        ↓
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="item-actions">
+                                    <button
+                                        className="item-delete"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            deleteItem(item.id);
+                                        }}
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     ))}
 
@@ -656,24 +633,16 @@ export default function ListPage() {
                     {checkedItems.map((item) => (
                         <div
                             key={item.id}
-                            className={`item-row checked ${draggedItem?.id === item.id ? 'dragging' : ''}`}
-                            onPointerDown={() => handlePointerDown(item)}
-                            onPointerUp={handlePointerUp}
-                            onPointerMove={() => handlePointerMove(item)}
-                            style={{
-                                touchAction: 'none',
-                                cursor: 'grab',
-                                userSelect: 'none'
-                            }}
+                            className="item-row checked"
+                            onClick={() => !isSorting && toggleItem(item)}
+                            style={{ cursor: isSorting ? 'default' : 'pointer' }}
                         >
                             <div
                                 className="item-checkbox"
-                                onClick={(e) => { e.stopPropagation(); toggleItem(item); }}
                             >✓</div>
                             <div
                                 className="item-text-container"
                                 style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-                                onClick={(e) => { e.stopPropagation(); toggleItem(item); }}
                             >
                                 <span className="item-text">{item.text}</span>
                                 {item.url && (
@@ -689,17 +658,39 @@ export default function ListPage() {
                                     </a>
                                 )}
                             </div>
-                            <div className="item-actions">
-                                <button
-                                    className="item-delete"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        deleteItem(item.id);
-                                    }}
-                                >
-                                    ✕
-                                </button>
-                            </div>
+
+                            {isSorting ? (
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <button
+                                        className="item-action-btn"
+                                        style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', cursor: 'pointer', width: 44, height: 44, fontSize: 18 }}
+                                        onClick={(e) => { e.stopPropagation(); moveItem(item, 'up'); }}
+                                        disabled={checkedItems.indexOf(item) === 0}
+                                    >
+                                        ↑
+                                    </button>
+                                    <button
+                                        className="item-action-btn"
+                                        style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', cursor: 'pointer', width: 44, height: 44, fontSize: 18 }}
+                                        onClick={(e) => { e.stopPropagation(); moveItem(item, 'down'); }}
+                                        disabled={checkedItems.indexOf(item) === checkedItems.length - 1}
+                                    >
+                                        ↓
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="item-actions">
+                                    <button
+                                        className="item-delete"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            deleteItem(item.id);
+                                        }}
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
