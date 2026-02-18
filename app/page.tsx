@@ -9,6 +9,7 @@ interface ListItem {
   id: string;
   name: string;
   icon: string;
+  custom_icon_url?: string | null;
   created_at: string;
   item_count?: number;
   unchecked_count?: number;
@@ -41,7 +42,7 @@ export default function HomePage() {
 
     const { data: listsData } = await supabase
       .from('lists')
-      .select('*')
+      .select('id, name, icon, custom_icon_url, created_at')
       .in('id', listIds)
       .order('created_at', { ascending: false });
 
@@ -152,7 +153,7 @@ export default function HomePage() {
   return (
     <div className="container">
       <div className="header">
-        <h1>Мої списки</h1>
+        <h1>Яриші</h1>
         <div className="header-actions">
           <button className="icon-btn accent" onClick={() => setShowModal(true)} title="Новий список">
             +
@@ -178,8 +179,19 @@ export default function HomePage() {
               key={list.id}
               className="card list-card"
               onClick={() => router.push(`/list/${list.id}`)}
+              style={{ display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}
             >
-              <div className="list-icon">{list.icon}</div>
+              <div className="list-icon" style={{ flexShrink: 0 }}>
+                {list.custom_icon_url ? (
+                  <img
+                    src={list.custom_icon_url}
+                    alt=""
+                    style={{ width: 44, height: 44, borderRadius: '25%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  list.icon
+                )}
+              </div>
               <div className="list-info">
                 <div className="list-name">{list.name}</div>
                 <div className="list-meta">
