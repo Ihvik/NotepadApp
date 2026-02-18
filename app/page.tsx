@@ -10,6 +10,7 @@ interface ListItem {
   name: string;
   icon: string;
   custom_icon_url?: string | null;
+  position: number;
   created_at: string;
   item_count?: number;
   unchecked_count?: number;
@@ -26,6 +27,43 @@ export default function HomePage() {
   const [newListName, setNewListName] = useState('');
   const [newListIcon, setNewListIcon] = useState('📝');
   const [creating, setCreating] = useState(false);
+  const [draggedList, setDraggedList] = useState<ListItem | null>(null);
+
+  const onDragStart = (list: ListItem) => {
+    setDraggedList(list);
+  };
+
+  const onDragOver = (e: React.DragEvent, targetList: ListItem) => {
+    e.preventDefault();
+    if (!draggedList || draggedList.id === targetList.id) return;
+
+    const newLists = [...lists];
+    const draggedIdx = newLists.findIndex(i => i.id === draggedList.id);
+    const targetIdx = newLists.findIndex(i => i.id === targetList.id);
+
+    newLists.splice(draggedIdx, 1);
+    newLists.splice(targetIdx, 0, draggedList);
+
+    setLists(newLists);
+  };
+
+  const onDragEnd = async () => {
+    if (!draggedList) return;
+    setDraggedList(null);
+
+    const updates = lists.map((list, index) => ({
+      id: list.id,
+      position: index,
+      name: list.name,
+      created_by: user?.id
+    }));
+
+    const { error } = await supabase
+      .from('lists')
+      .upsert(updates, { onConflict: 'id' });
+
+    if (error) fetchLists();
+  };
 
   const fetchLists = useCallback(async () => {
     const { data: memberData } = await supabase
@@ -42,8 +80,9 @@ export default function HomePage() {
 
     const { data: listsData } = await supabase
       .from('lists')
-      .select('id, name, icon, custom_icon_url, created_at')
+      .select('id, name, icon, custom_icon_url, position, created_at')
       .in('id', listIds)
+      .order('position', { ascending: true })
       .order('created_at', { ascending: false });
 
     if (listsData) {
@@ -177,8 +216,12 @@ export default function HomePage() {
           {lists.map((list) => (
             <div
               key={list.id}
-              className="card list-card"
+              className={`card list-card ${draggedList?.id === list.id ? 'dragging' : ''}`}
               onClick={() => router.push(`/list/${list.id}`)}
+              draggable
+              onDragStart={() => onDragStart(list)}
+              onDragOver={(e) => onDragOver(e, list)}
+              onDragEnd={onDragEnd}
               style={{ display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}
             >
               <div className="list-icon" style={{ flexShrink: 0 }}>
