@@ -215,6 +215,48 @@ export default function ListPage() {
         }
     };
 
+    const [draggedItem, setDraggedItem] = useState<Item | null>(null);
+
+    const onDragStart = (item: Item) => {
+        setDraggedItem(item);
+    };
+
+    const onDragOver = (e: React.DragEvent, targetItem: Item) => {
+        e.preventDefault();
+        if (!draggedItem || draggedItem.id === targetItem.id) return;
+        if (draggedItem.checked !== targetItem.checked) return;
+
+        const relevantItems = targetItem.checked ? checkedItems : uncheckedItems;
+        const newItems = [...items];
+        const draggedIdx = newItems.findIndex(i => i.id === draggedItem.id);
+        const targetIdx = newItems.findIndex(i => i.id === targetItem.id);
+
+        newItems.splice(draggedIdx, 1);
+        newItems.splice(targetIdx, 0, draggedItem);
+
+        setItems(newItems);
+    };
+
+    const onDragEnd = async () => {
+        if (!draggedItem) return;
+        setDraggedItem(null);
+
+        // Update all positions in background
+        const relevantItems = draggedItem.checked ? items.filter(i => i.checked) : items.filter(i => !i.checked);
+        const updates = relevantItems.map((item, index) => ({
+            id: item.id,
+            position: index,
+            list_id: listId,
+            text: item.text // included to satisfy potential RLS/validation
+        }));
+
+        const { error } = await supabase
+            .from('items')
+            .upsert(updates, { onConflict: 'id' });
+
+        if (error) fetchItems();
+    };
+
     const deleteItem = async (itemId: string) => {
         // Optimistic update
         setItems((prev) => prev.filter((i) => i.id !== itemId));
@@ -493,11 +535,15 @@ export default function ListPage() {
                 </div>
             ) : (
                 <div className="items-list">
-                    {uncheckedItems.map((item, idx) => (
+                    {uncheckedItems.map((item) => (
                         <div
                             key={item.id}
-                            className="item-row"
+                            className={`item-row ${draggedItem?.id === item.id ? 'dragging' : ''}`}
                             onClick={() => toggleItem(item)}
+                            draggable
+                            onDragStart={() => onDragStart(item)}
+                            onDragOver={(e) => onDragOver(e, item)}
+                            onDragEnd={onDragEnd}
                         >
                             <div className="item-checkbox"></div>
                             <div className="item-text-container" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -515,25 +561,7 @@ export default function ListPage() {
                                     </a>
                                 )}
                             </div>
-                            <div className="item-actions" style={{ display: 'flex', gap: 4 }}>
-                                <button
-                                    className="item-action-btn"
-                                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
-                                    onClick={(e) => { e.stopPropagation(); moveItem(item, 'up'); }}
-                                    disabled={idx === 0}
-                                    title="Вгору"
-                                >
-                                    ↑
-                                </button>
-                                <button
-                                    className="item-action-btn"
-                                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
-                                    onClick={(e) => { e.stopPropagation(); moveItem(item, 'down'); }}
-                                    disabled={idx === uncheckedItems.length - 1}
-                                    title="Вниз"
-                                >
-                                    ↓
-                                </button>
+                            <div className="item-actions">
                                 <button
                                     className="item-delete"
                                     onClick={(e) => {
@@ -560,11 +588,15 @@ export default function ListPage() {
                         </div>
                     )}
 
-                    {checkedItems.map((item, idx) => (
+                    {checkedItems.map((item) => (
                         <div
                             key={item.id}
-                            className="item-row checked"
+                            className={`item-row checked ${draggedItem?.id === item.id ? 'dragging' : ''}`}
                             onClick={() => toggleItem(item)}
+                            draggable
+                            onDragStart={() => onDragStart(item)}
+                            onDragOver={(e) => onDragOver(e, item)}
+                            onDragEnd={onDragEnd}
                         >
                             <div className="item-checkbox">✓</div>
                             <div className="item-text-container" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
