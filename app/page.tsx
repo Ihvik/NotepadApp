@@ -28,6 +28,9 @@ export default function HomePage() {
   const [newListIcon, setNewListIcon] = useState('📝');
   const [creating, setCreating] = useState(false);
   const [isSorting, setIsSorting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingListId, setEditingListId] = useState<string | null>(null);
+  const [editingListName, setEditingListName] = useState('');
 
   const fetchLists = useCallback(async () => {
     const { data: memberData } = await supabase
@@ -166,6 +169,23 @@ export default function HomePage() {
     setCreating(false);
   };
 
+  const updateListName = async (listId: string) => {
+    if (!editingListName.trim()) {
+      setEditingListId(null);
+      return;
+    }
+
+    const { error } = await supabase
+      .from('lists')
+      .update({ name: editingListName.trim() })
+      .eq('id', listId);
+
+    if (!error) {
+      setLists(prev => prev.map(l => l.id === listId ? { ...l, name: editingListName.trim() } : l));
+    }
+    setEditingListId(null);
+  };
+
   const handleLogout = async () => {
     if (!confirm('Ви дійсно хочете вийти?')) return;
     await supabase.auth.signOut();
@@ -190,8 +210,22 @@ export default function HomePage() {
         <h1>Яриші</h1>
         <div className="header-actions">
           <button
+            className={`icon-btn ${isEditing ? 'accent' : ''}`}
+            onClick={() => {
+              setIsEditing(!isEditing);
+              setIsSorting(false);
+            }}
+            title="Редагувати"
+            style={{ fontSize: 16 }}
+          >
+            ✎
+          </button>
+          <button
             className={`icon-btn ${isSorting ? 'accent' : ''}`}
-            onClick={() => setIsSorting(!isSorting)}
+            onClick={() => {
+              setIsSorting(!isSorting);
+              setIsEditing(false);
+            }}
             title="Сортувати"
             style={{ fontSize: 16 }}
           >
@@ -220,25 +254,50 @@ export default function HomePage() {
             <div
               key={list.id}
               className="card list-card"
-              onClick={() => !isSorting && router.push(`/list/${list.id}`)}
-              style={{ display: 'flex', alignItems: 'center', gap: 16, cursor: isSorting ? 'default' : 'pointer' }}
+              onClick={() => {
+                if (isEditing) {
+                  setEditingListId(list.id);
+                  setEditingListName(list.name);
+                } else if (!isSorting) {
+                  router.push(`/list/${list.id}`);
+                }
+              }}
+              style={{
+                cursor: isSorting ? 'default' : 'pointer',
+                border: isEditing ? '1px dashed var(--accent)' : ''
+              }}
             >
-              <div
-                className="list-icon"
-                style={{ flexShrink: 0 }}
-              >
+              <div className="list-icon">
                 {list.custom_icon_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={list.custom_icon_url}
                     alt=""
-                    style={{ width: 44, height: 44, borderRadius: '25%', objectFit: 'cover' }}
+                    style={{ width: '100%', height: '100%', borderRadius: 12, objectFit: 'cover' }}
                   />
                 ) : (
                   list.icon
                 )}
               </div>
-              <div className="list-info">
-                <div className="list-name">{list.name}</div>
+              <div className="list-info" style={{ flex: 1 }}>
+                {editingListId === list.id ? (
+                  <input
+                    type="text"
+                    className="share-input"
+                    style={{ fontSize: 18, fontWeight: 600, padding: '4px 8px', width: '100%' }}
+                    value={editingListName}
+                    onChange={(e) => setEditingListName(e.target.value)}
+                    onBlur={() => updateListName(list.id)}
+                    onKeyDown={(e) => e.key === 'Enter' && updateListName(list.id)}
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <div className="list-name">
+                    {list.name}
+                    {isEditing && <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.5 }}>✎</span>}
+                  </div>
+                )}
                 <div className="list-meta">
                   {list.item_count === 0
                     ? 'Порожній список'
