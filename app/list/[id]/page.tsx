@@ -408,7 +408,7 @@ export default function ListPage() {
             {list?.bg_url && <div style={{
                 position: 'fixed',
                 inset: 0,
-                background: 'rgba(0,0,0,0.65)',
+                background: 'rgba(0,0,0,0.8)',
                 backdropFilter: 'blur(12px)',
                 zIndex: -1
             }}></div>}
@@ -630,7 +630,7 @@ export default function ListPage() {
                                     />
                                 ) : (
                                     <>
-                                        <span className="item-text">{item.text}</span>
+                                        <span className="item-text" style={{ textShadow: list?.bg_url ? '0 1px 4px rgba(0,0,0,0.5)' : 'none' }}>{item.text}</span>
                                         {isEditingItems && <span style={{ position: 'absolute', right: 0, top: 0, fontSize: 10, opacity: 0.5 }}>✎</span>}
                                         {item.url && (
                                             <a
@@ -733,7 +733,7 @@ export default function ListPage() {
                                     />
                                 ) : (
                                     <>
-                                        <span className="item-text">{item.text}</span>
+                                        <span className="item-text" style={{ textShadow: list?.bg_url ? '0 1px 4px rgba(0,0,0,0.5)' : 'none' }}>{item.text}</span>
                                         {isEditingItems && <span style={{ position: 'absolute', right: 0, top: 0, fontSize: 10, opacity: 0.5 }}>✎</span>}
                                         {item.url && (
                                             <a
